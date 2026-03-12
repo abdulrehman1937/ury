@@ -264,6 +264,8 @@ def sync_order(
             frappe.throw(_("No item price found for Item: {0} in Price List: {1}. Please check the price list settings.").format(d.get("item"), price_list))
 
         else:
+            # Set both rate and price_list_rate to allow pricing rules to work
+            # Pricing rules modify the 'rate' field, so it must be set initially
             invoice.append(
                 "items",
                 dict(
@@ -272,6 +274,7 @@ def sync_order(
                     qty=d.get("qty"),
                     **({"custom_course": course} if course else {}),
                     comment=d.get("comment"),
+                    # Set both rate and price_list_rate to allow pricing rules to work
                     rate = item_prices[0].price_list_rate,
                     price_list_rate = item_prices[0].price_list_rate,
                     base_price_list_rate = item_prices[0].price_list_rate,
@@ -283,7 +286,65 @@ def sync_order(
 
     try:
         invoice.save()
+        
+        # Apply pricing rules immediately after first save
+        if not invoice.ignore_pricing_rule:
+            from erpnext.accounts.doctype.pricing_rule.pricing_rule import apply_pricing_rule
+            
+            frappe.logger().info(f"Applying pricing rules to invoice {invoice.name}")
+            frappe.logger().info(f"Customer: {invoice.customer}")
+            frappe.logger().info(f"Price List: {invoice.selling_price_list}")
+            frappe.logger().info(f"Items count: {len(invoice.items)}")
+            
+            if not invoice.customer:
+                default_customer = frappe.db.get_value("POS Profile", pos_profile, "customer")
+                if default_customer:
+                    invoice.customer = default_customer
+                    frappe.logger().info(f"Set default customer: {default_customer}")
+            
+            args = {
+                "items": [item.as_dict() for item in invoice.items],
+                "customer": invoice.customer,
+                "customer_group": invoice.customer_group,
+                "territory": invoice.territory,
+                "currency": invoice.currency,
+                "conversion_rate": invoice.conversion_rate,
+                "price_list": invoice.selling_price_list,
+                "company": invoice.company,
+                "transaction_date": invoice.posting_date,
+                "ignore_pricing_rule": invoice.ignore_pricing_rule,
+                "doctype": invoice.doctype,
+                "name": invoice.name,
+                "pos_profile": invoice.pos_profile,
+            }
+            
+            frappe.logger().info(f"Pricing rule args: {args}")
+            
+            pricing_rule_results = apply_pricing_rule(args, invoice)
+            
+            frappe.logger().info(f"Pricing rule results: {pricing_rule_results}")
+            
+            if pricing_rule_results:
+                for i, result in enumerate(pricing_rule_results):
+                    if i < len(invoice.items):
+                        item = invoice.items[i]
+                        if result.get("rate"):
+                            item.rate = result.get("rate")
+                            frappe.logger().info(f"Updated rate for {item.item_code}: {item.rate}")
+                        if result.get("discount_percentage"):
+                            item.discount_percentage = result.get("discount_percentage")
+                            frappe.logger().info(f"Updated discount for {item.item_code}: {item.discount_percentage}")
+                        if result.get("pricing_rules"):
+                            item.pricing_rules = result.get("pricing_rules")
+                            frappe.logger().info(f"Updated pricing rules for {item.item_code}: {item.pricing_rules}")
+            
+            frappe.logger().info(f"Pricing rules applied successfully")
+            
+            invoice.calculate_taxes_and_totals()
+            invoice.save()
+            
     except Exception as e:
+        frappe.logger().error(f"Error in pricing rule application: {str(e)}")
         frappe.throw(f"Error while updating order: {e}")   
 
 
@@ -293,7 +354,7 @@ def sync_order(
     except Exception as e:
         # If an exception occurs (e.g., "kot" app not found), it will be caught here without affect the code execution.
         error_msg = f"KOT Creation Failes {str(e)}"            
-        frappe.log_error(error_msg, "KOT Error")
+        frappe.logger().error(error_msg, "KOT Error")
 
     # table status
     if invoice.invoice_printed == 0:

@@ -178,10 +178,13 @@ def print_pos_page(doctype, name, print_format):
 @frappe.whitelist()
 def qz_certificate():
     site_config = frappe.get_site_config()
+    frappe.log("qz_key_value", level=frappe.log_level.INFO)
+    
     qz_key_value = site_config.get("qz_cert")
-
+    frappe.log(qz_key_value, level=frappe.log_level.INFO)
+    frappe.msgprint("qz_key_value")
+    frappe.msgprint(qz_key_value)
     return qz_key_value
-
 
 @frappe.whitelist()
 def signature_promise():

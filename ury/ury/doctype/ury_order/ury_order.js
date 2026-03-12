@@ -807,22 +807,60 @@ frappe.ui.form.on('URY Order', {
 							});
 						}
 						frappe.dom.freeze(__('Printing Invoice'));
+						console.log("=== URY Order: Print function called ===");
+						console.log("POS Invoice:", pos_invoice);
+						
 						frappe.db.get_doc('POS Profile', pos_invoice.pos_profile).then(profile => {
+							console.log("=== URY Order: POS Profile loaded ===");
+							console.log("Profile:", profile);
+							console.log("QZ Print enabled:", profile.qz_print);
 
 							if (profile.qz_print == 1) {
+								console.log("=== URY Order: QZ Print is enabled, proceeding with certificate fetch ===");
 								// To fetch qz_key from site config
 								frappe.call({
 									method: "ury.ury.api.ury_print.qz_certificate",
 									callback: function (response) {
+										console.log("=== URY Order: QZ Certificate API Response ===");
+										console.log("Response:", response);
+										console.log("Response message:", response.message);
+										
 										if (response.message) {
 											var qzKey = response.message;
+											console.log("Certificate path received:", qzKey);
+											console.log("Full fetch URL will be:", "/private/" + qzKey);
+											
 											qz.security.setCertificatePromise(function (resolve, reject) {
+												console.log("=== QZ Certificate Promise Called ===");
+												console.log("Fetching certificate from:", "/private/" + qzKey);
+												
 												//Preferred method - from server
 												fetch("/private/" + qzKey, { cache: 'no-store', headers: { 'Content-Type': 'text/plain' } })
-													.then(function (data) { data.ok ? resolve(data.text()) : reject(data.text()); });
+													.then(function (data) { 
+														console.log("Certificate fetch response:", data);
+														console.log("Response OK:", data.ok);
+														console.log("Response status:", data.status);
+														
+														if (data.ok) {
+															console.log("Certificate fetch successful, resolving...");
+															resolve(data.text());
+														} else {
+															console.error("Certificate fetch failed, rejecting...");
+															reject(data.text());
+														}
+													})
+													.catch(function (error) {
+														console.error("Certificate fetch error:", error);
+														reject(error);
+													});
 											});
-
+										} else {
+											console.warn("No certificate path received from API");
 										}
+									},
+									error: function (error) {
+										console.error("=== URY Order: QZ Certificate API Error ===");
+										console.error("API call failed:", error);
 									}
 								});
 
