@@ -4,15 +4,19 @@ import { usePOSStore } from '../store/pos-store';
 import { formatCurrency, cn } from '../lib/utils';
 import { CustomerSelect } from './CustomerSelect';
 import ProductDialog from './ProductDialog';
+import PaymentDialog from './PaymentDialog';
 import OrderTypeSelect from './OrderTypeSelect';
 import CommentDialog from './CommentDialog';
 import { Button } from './ui/button';
 import { Spinner } from './ui/spinner';
-import { syncOrder } from '../lib/order-api';
+import { syncOrder, getTableOrder } from '../lib/order-api';
+import { call } from '../lib/frappe-sdk';
 import { useRootStore } from '../store/root-store';
 import type { RootState } from '../store/root-store';
 import { showToast } from './ui/toast';
 import { DINE_IN } from '../data/order-types';
+import { printOrder } from '../lib/print';
+import { Checkbox } from './ui/checkbox';
 
 const OrderPanel = () => {
   const { 
@@ -40,6 +44,12 @@ const OrderPanel = () => {
   const [editingItem, setEditingItem] = useState<typeof activeOrders[0] | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showCommentDialog, setShowCommentDialog] = useState(false);
+  const [showPaymentDialog, setShowPaymentDialog] = useState(false);
+  const [printAndPay, setPrintAndPay] = useState(true);
+  const [directPayment, setDirectPayment] = useState(true);
+  const [isPrinting, setIsPrinting] = useState(false);
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
+  const [currentOrderDetails, setCurrentOrderDetails] = useState<any>(null);
 
   const calculateItemTotal = (item: typeof activeOrders[0]) => {
     const basePrice = item.selectedVariant?.price || item.price;
@@ -64,6 +74,27 @@ const OrderPanel = () => {
 
   const handleCommentSave = (comment: string) => {
     setOrderComment(comment);
+  };
+
+  const handleDirectPayment = async (orderId: string) => {
+    try {
+      await call.post('ury.ury.doctype.ury_order.ury_order.make_invoice', {
+        additionalDiscount: null,
+        cashier: posProfile?.cashier || '',
+        customer: selectedOrderType === 'Aggregators' ? selectedAggregator?.customer || '' : selectedCustomer?.name || '',
+        invoice: orderId,
+        owner: posProfile?.cashier || '',
+        payments: [{ mode_of_payment: paymentModes[0], amount: total }],
+        pos_profile: posProfile?.name || '',
+        table: selectedTable || null,
+      });
+      
+      showToast.success('Payment processed successfully');
+      resetOrderState();
+    } catch (error) {
+      console.error('Direct payment failed:', error);
+      showToast.error('Payment failed: ' + (error instanceof Error ? error.message : 'Unknown error'));
+    }
   };
 
   const handleSubmit = async () => {
@@ -119,11 +150,32 @@ const OrderPanel = () => {
         comments: orderComment || undefined
       };
 
-      await syncOrder(orderData);
+      const response = await syncOrder(orderData);
       
-      // Reset all states after successful order submission
-      resetOrderState();
-      showToast.success(isUpdatingOrder ? 'Order updated successfully' : 'Order created successfully');
+      if (printAndPay && response?.message?.name) {
+        setCurrentOrderId(response.message.name);
+        
+        setIsPrinting(true);
+        try {
+          await printOrder({ orderId: response.message.name, posProfile });
+          showToast.success('Order printed successfully');
+          
+          if (directPayment) {
+            await handleDirectPayment(response.message.name);
+          } else {
+            setShowPaymentDialog(true);
+          }
+        } catch (printError) {
+          console.error('Failed to print order:', printError);
+          showToast.error('Failed to print order. Order saved as draft.');
+          resetOrderState();
+        } finally {
+          setIsPrinting(false);
+        }
+      } else {
+        resetOrderState();
+        showToast.success(isUpdatingOrder ? 'Order updated successfully' : 'Order created successfully');
+      }
     } catch (error) {
       console.error('Failed to sync order:', error);
       // Frappe API error handling
@@ -302,20 +354,61 @@ const OrderPanel = () => {
               </div>
               <span className="text-lg font-semibold">{formatCurrency(total)}</span>
             </div>
+            {/* Print and Pay Checkbox */}
+            <div className="flex items-center space-x-2 mb-4">
+              <Checkbox
+                id="printAndPay"
+                checked={printAndPay}
+                onCheckedChange={(checked) => setPrintAndPay(checked as boolean)}
+                disabled={isInteractionDisabled}
+              />
+              <label
+                htmlFor="printAndPay"
+                className="text-sm font-medium text-gray-700 cursor-pointer"
+              >
+                Print and Submit
+              </label>
+            </div>
+            
+            {/* Direct Payment Checkbox */}
+            <div className="flex items-center space-x-2 mb-4">
+              <Checkbox
+                id="directPayment"
+                checked={directPayment}
+                onCheckedChange={(checked) => setDirectPayment(checked as boolean)}
+                disabled={isInteractionDisabled}
+              />
+              <label
+                htmlFor="directPayment"
+                className="text-sm font-medium text-gray-700 cursor-pointer"
+              >
+                Direct payment (no dialog)
+              </label>
+            </div>
+            
             <Button
               onClick={handleSubmit}
               variant="default"
               size="default"
               className="w-full"
-              disabled={isInteractionDisabled}
+              disabled={isInteractionDisabled || isPrinting}
             >
               {isSubmitting ? (
                 <div className="flex items-center">
                   <Loader2 className="w-4 h-4 mr-2 animate-spin" />
                   {isUpdatingOrder ? 'Updating Order...' : 'Processing Order...'}
                 </div>
+              ) : isPrinting ? (
+                <div className="flex items-center">
+                  <Spinner className="w-4 h-4 mr-2" hideMessage />
+                  Printing...
+                </div>
               ) : isUpdatingOrder ? (
                 'Update Order'
+              ) : printAndPay && directPayment ? (
+                'Print & Pay Direct'
+              ) : printAndPay ? (
+                'Print & Open Payment'
               ) : (
                 'Add New Order'
               )}
@@ -344,8 +437,33 @@ const OrderPanel = () => {
         onSave={handleCommentSave}
         initialComment={orderComment}
       />
+
+      {/* Payment Dialog */}
+      {showPaymentDialog && currentOrderId && posProfile && (
+        <PaymentDialog
+          onClose={() => {
+            setShowPaymentDialog(false);
+            setCurrentOrderId(null);
+            resetOrderState();
+          }}
+          grandTotal={total}
+          roundedTotal={total}
+          invoice={currentOrderId}
+          customer={selectedOrderType === 'Aggregators' ? selectedAggregator?.customer || '' : selectedCustomer?.name || ''}
+          posProfile={posProfile.name}
+          table={selectedTable || null}
+          cashier={posProfile.cashier}
+          owner={posProfile.cashier}
+          fetchOrders={async () => {}}
+          clearSelectedOrder={() => {
+            setShowPaymentDialog(false);
+            setCurrentOrderId(null);
+            resetOrderState();
+          }}
+        />
+      )}
     </div>
   );
 };
 
-export default OrderPanel; 
+export default OrderPanel;

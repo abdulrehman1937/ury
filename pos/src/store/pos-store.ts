@@ -168,6 +168,16 @@ const calculateItemPrice = (item: OrderItem): number => {
   return basePrice + addonsTotal;
 };
 
+const getDefaultCustomer = (posProfile: PosProfileCombined | null): Customer | null => {
+  if (!posProfile?.customer) return null;
+  
+  return {
+    id: posProfile.customer,
+    name: posProfile.customer,
+    phone: '',
+  };
+};
+
 export const usePOSStore = create<POSStore>((set, get) => ({
   menuItems: [],
   categories: [],
@@ -220,6 +230,11 @@ export const usePOSStore = create<POSStore>((set, get) => ({
           isInitializing: false 
         });
         return;
+      }
+
+      const defaultCustomer = getDefaultCustomer(get().posProfile);
+      if (defaultCustomer) {
+        set({ selectedCustomer: defaultCustomer });
       }
 
       set({ isInitializing: false });
@@ -437,7 +452,10 @@ export const usePOSStore = create<POSStore>((set, get) => ({
 
   clearOrder: async () => {
     try {
-      set({ activeOrders: [] });
+      set({ 
+        activeOrders: [],
+        selectedCustomer: getDefaultCustomer(get().posProfile)
+      });
     } catch (error) {
       set({ error: 'Failed to clear cart' });
     }
@@ -465,7 +483,8 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       activeOrders: [],
       selectedOrderType: type,
       isUpdatingOrder: false,
-      orderId: null
+      orderId: null,
+      selectedCustomer: type === 'Aggregators' ? null : getDefaultCustomer(get().posProfile)
     });
     
     if (type !== 'Aggregators') {
@@ -648,7 +667,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     set({ 
       tableOrder: null,
       activeOrders: [],
-      selectedCustomer: null,
+      selectedCustomer: getDefaultCustomer(get().posProfile),
       isUpdatingOrder: false,
       orderId: null,
     });
@@ -665,7 +684,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
     const { fetchMenuItems } = get();
     
     set({
-      selectedCustomer: null,
+      selectedCustomer: getDefaultCustomer(get().posProfile),
       selectedTable: null,
       selectedRoom: null,
       selectedAggregator: null,

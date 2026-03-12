@@ -13,6 +13,7 @@ import { useNavigate } from 'react-router-dom';
 import PaymentDialog from '../components/PaymentDialog';
 import { printOrder } from '../lib/print';
 import { call } from '../lib/frappe-sdk';
+import { Checkbox } from '../components/ui/checkbox';
 
 export default function Orders() {
   const { 
@@ -44,6 +45,7 @@ export default function Orders() {
   const [editLoading, setEditLoading] = React.useState(false);
   const [showPaymentDialog, setShowPaymentDialog] = React.useState(false);
   const [isPrinting, setIsPrinting] = React.useState(false);
+  const [proceedWithoutPrint, setProceedWithoutPrint] = React.useState(false);
 
   useEffect(() => {
     fetchOrders();
@@ -449,8 +451,25 @@ export default function Orders() {
               )}
             </div>
 
-            {/* Sticky Bottom Section - Single Row: Print | Payment | Total */}
+            {/* Sticky Bottom Section - Print | Payment | Total */}
             <div className="border-t border-gray-200 p-6 bg-gray-50 sticky bottom-0 left-0 right-0 z-10">
+              {/* Proceed without print checkbox */}
+              {(selectedOrder.status === 'Draft' || selectedOrder.status === 'Unbilled' || selectedOrder.status === 'Recently Paid') && (
+                <div className="flex items-center space-x-2 mb-3">
+                  <Checkbox
+                    id="proceedWithoutPrint"
+                    checked={proceedWithoutPrint}
+                    onCheckedChange={(checked) => setProceedWithoutPrint(checked as boolean)}
+                  />
+                  <label
+                    htmlFor="proceedWithoutPrint"
+                    className="text-sm font-medium text-gray-700 cursor-pointer"
+                  >
+                    Proceed to payment without print
+                  </label>
+                </div>
+              )}
+              
               <div className="flex items-center gap-3 w-full">
                 {/* Print Icon Button */}
                 <Button
@@ -468,7 +487,7 @@ export default function Orders() {
                   <Button
                     className="flex-1"
                     onClick={() => {
-                      if (String(selectedOrder.invoice_printed) === '0') {
+                      if (String(selectedOrder.invoice_printed) === '0' && !proceedWithoutPrint) {
                         showToast.error('Please print invoice before making payment');
                         return;
                       }
