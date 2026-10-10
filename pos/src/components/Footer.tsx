@@ -1,18 +1,23 @@
 import { NavLink } from 'react-router-dom';
-import { 
-  LayoutGrid, 
-  ClipboardList, 
+import {
+  LayoutDashboard,
+  LayoutGrid,
+  ClipboardList,
   Table,
+  Settings,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn } from '@ury/ui';
+import { t } from '../i18n';
 
 const Footer = () => {
 
   const navItems = [
-    { icon: LayoutGrid, label: 'POS', path: '/' },
-    {icon: Table, label: 'Table', path: '/table'},
-    { icon: ClipboardList, label: 'Orders', path: '/orders' },
-  ];
+    { icon: LayoutDashboard, label: t('footer.dashboard'), path: '/dashboard' },
+    { icon: LayoutGrid, label: t('footer.pos'), path: '/pos' },
+    { icon: Table, label: t('footer.tables'), path: '/tables' },
+    { icon: ClipboardList, label: t('footer.orders'), path: '/orders' },
+    { icon: Settings, label: t('footer.settings'), path: '/settings', hidden: true },
+  ].filter((item) => !item.hidden);
 
   return (
     <div className="bg-white border-t border-gray-200 py-2 relative">

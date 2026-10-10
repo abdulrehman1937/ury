@@ -27,6 +27,9 @@ export const useTableStore = defineStore("table", {
     isTakeAway: "",
     mobileNumber: "",
     showModal: false,
+    showModalMergeFree: false,
+    mergeSourceTable: "",
+    selectedMergedTable: "",
     isTakeaeay: false,
     newTable: "",
     showTable: false,
@@ -107,7 +110,7 @@ export const useTableStore = defineStore("table", {
           .getDocList("URY Room", {
             fields: ["name", "branch"],
             filters: [["branch", "like", this.invoiceData.branch]],
-            limit: "*",
+            limit: 0,
           })
           .then((docs) => {
             this.rooms = docs;
@@ -167,9 +170,10 @@ export const useTableStore = defineStore("table", {
             "layout_x",
             "layout_y",
             "minimum_seating",
+            "merged_with"
           ],
           filters: [["restaurant_room", "=", this.selectedRoom]],
-          limit: "*",
+          limit: 0,
         })
         .then((tables) => {
           this.tables = tables.sort((a, b) => {
@@ -209,7 +213,7 @@ export const useTableStore = defineStore("table", {
       this.db
         .getDocList("URY Table", {
           filters: [["occupied", "like", "0%"]],
-          limit: "*",
+          limit: 0,
         })
         .then((table) => {
           this.transferTable = table;
@@ -218,11 +222,44 @@ export const useTableStore = defineStore("table", {
           console.error(error);
         });
     },
+    openMergeFreeModal(table) {
+      if (table.occupied === 1) {
+        return;
+      }
+      this.mergeSourceTable = table.name;
+      this.selectedMergedTable = "";
+      this.showModalMergeFree = true;
+      this.db
+        .getDocList("URY Table", {
+          filters: [["occupied", "like", "0%"], ["name", "!=", this.mergeSourceTable], ["restaurant_room", "=", this.selectedRoom]],
+          limit: 0,
+        })
+        .then((tableList) => {
+          this.transferTable = tableList;
+        })
+        .catch((error) => {
+          console.error(error);
+        });
+    },
+    async mergeFreeTablesAction() {
+      try {
+        await this.call.post(
+          "ury.ury.doctype.ury_order.ury_order.merge_free_tables",
+          {
+            table1: this.mergeSourceTable,
+            table2: this.selectedMergedTable
+          }
+        );
+        this.fetchTable();
+      } catch (error) {
+        console.error("Failed to merge tables:", error);
+      }
+    },
     fetchCaptain() {
       this.db
         .getDocList("User", {
           fields: ["name"],
-          limit: "*",
+          limit: 0,
         })
         .then((docs) => {
           this.captain = docs;

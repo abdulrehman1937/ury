@@ -1,4 +1,4 @@
-import { call } from './frappe-sdk';
+import { call } from '@ury/core';
 
 export interface MenuItem {
   item: string;
@@ -6,6 +6,7 @@ export interface MenuItem {
   item_image: string | null;
   rate: number | string;
   course: string;
+  course_label?: string;
   trending?: boolean;
   popular?: boolean;
   recommended?: boolean;

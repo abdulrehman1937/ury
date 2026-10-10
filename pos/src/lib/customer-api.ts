@@ -1,5 +1,5 @@
 import { DOCTYPES } from '../data/doctypes';
-import { db, call } from './frappe-sdk';
+import { db, call } from '@ury/core';
 
 export interface Customer {
   name: string;
@@ -35,6 +35,7 @@ export interface CreateCustomerData {
   mobile_number: string;
   customer_group?: string;
   territory?: string;
+  name?: string;
 }
 
 export interface CreateCustomerResponse {
@@ -46,7 +47,7 @@ export interface CreateCustomerResponse {
 export async function getCustomerGroups() {
   const groups = await db.getDocList(DOCTYPES.CUSTOMER_GROUP, {
     fields: ['name'],
-    limit: "*" as unknown as number,
+    limit: 0,
     orderBy: {
       field: 'name',
       order: 'asc',
@@ -58,7 +59,7 @@ export async function getCustomerGroups() {
 export async function getCustomerTerritories() {
   const territories = await db.getDocList(DOCTYPES.CUSTOMER_TERRITORY, {
     fields: ['name'],
-    limit: "*" as unknown as number,
+    limit: 0,
     orderBy: {
       field: 'name',
       order: 'asc',

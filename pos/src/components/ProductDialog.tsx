@@ -1,9 +1,11 @@
 import React, { useState, useEffect, useRef, ChangeEvent } from 'react';
 import { X, Plus, Minus } from 'lucide-react';
 import { OrderItem, usePOSStore } from '../store/pos-store';
-import { cn, formatCurrency } from '../lib/utils';
-import { Button, Dialog, DialogContent, Input } from './ui';
-import { db } from '../lib/frappe-sdk';
+import { cn } from '@ury/ui';
+import { formatCurrency } from '@ury/core';
+import { Button, Dialog, DialogContent, Input } from '@ury/ui';
+import { db } from '@ury/core';
+import { t } from '../i18n';
 
 interface Variant {
   id: string;
@@ -45,20 +47,11 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
     menuItems
   } = usePOSStore();
   
-  // Find existing item in cart
-  const existingCartItem = selectedItem ? activeOrders.find(
-    order => order.id === selectedItem.id &&
-    (!order.selectedVariant || order.selectedVariant.id === initialVariant?.id) &&
-    (!order.selectedAddons || order.selectedAddons.length === initialAddons.length && 
-      order.selectedAddons.every(addon => 
-        initialAddons.some(initAddon => initAddon.id === addon.id)
-      ))
-  ) : null;
 
   // State for the full item doc (used for all dialog content)
   const [itemDoc, setItemDoc] = useState<any | null>(null);
-  const [isItemLoading, setIsItemLoading] = useState(false);
-  const [itemError, setItemError] = useState<string | null>(null);
+  const [, setIsItemLoading] = useState(false);
+  const [, setItemError] = useState<string | null>(null);
 
   // Fetch Item doc when dialog opens or selectedItem changes
   useEffect(() => {
@@ -122,12 +115,31 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
         .filter(Boolean)
     : [];
 
-  const [selectedAddons, setSelectedAddons] = useState<Array<{ id: string; name: string; price: number }>>([]);
+  const [selectedAddons, setSelectedAddons] = useState<Array<{ id: string; name: string; price: number }>>(initialAddons);
   const [quantity, setQuantity] = useState<string>(editMode ? initialQuantity?.toString() || '0' : '0');
-  const [comments, setComments] = useState<string>(itemToReplace?.comment || existingCartItem?.comment || '');
+  const [comments, setComments] = useState<string>(itemToReplace?.comment || '');
   const dialogRef = useRef<HTMLDivElement>(null);
 
-  const [addonItemCodes, setAddonItemCodes] = useState<string[]>([]);
+  // Find existing item in cart based on current selections and comments
+  const existingCartItem = selectedItem ? activeOrders.find(
+    order => order.id === selectedItem.id &&
+    (!order.selectedVariant || order.selectedVariant.id === initialVariant?.id) &&
+    (!order.selectedAddons || (order.selectedAddons.length === selectedAddons.length && 
+      order.selectedAddons.every(addon => 
+        selectedAddons.some(selAddon => selAddon.id === addon.id)
+      ))) &&
+    ((!order.comment && !comments) || (order.comment?.trim() === comments?.trim()))
+  ) : null;
+
+  // Initialize quantity and comments for new additions
+  useEffect(() => {
+    if (!editMode && selectedItem) {
+      setQuantity('1');
+      setComments('');
+    }
+  }, [selectedItem, editMode]);
+
+  const [, setAddonItemCodes] = useState<string[]>([]);
   const [isAddonLoading, setIsAddonLoading] = useState(false);
   const [addonError, setAddonError] = useState<string | null>(null);
 
@@ -151,7 +163,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
           setAddonItemCodes([]);
         }
       })
-      .catch((err: any) => {
+      .catch((_err: any) => {
         setAddonError('Failed to fetch add-ons');
         setAddonItemCodes([]);
       })
@@ -160,18 +172,6 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
       });
   }, [selectedItem]);
 
-  // Initialize quantity and comments from cart if not in edit mode
-  useEffect(() => {
-    if (!editMode && selectedItem) {
-      if (existingCartItem) {
-        setQuantity(existingCartItem.quantity.toString());
-        setComments(existingCartItem.comment || '');
-      } else {
-        const cartQuantity = getItemQuantityFromCart(selectedItem);
-        setQuantity(cartQuantity.toString());
-      }
-    }
-  }, [selectedItem, editMode, getItemQuantityFromCart, existingCartItem]);
 
   // Handle click outside to close dialog
   useEffect(() => {
@@ -205,40 +205,40 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
 
   // Always get price from menuItems for the main item
   const basePrice = selectedItem?.price ? Number(selectedItem.price) : 0;
-  const numericQuantity = quantity === '' ? 0 : parseInt(quantity, 10);
+  const numericQuantity = quantity === '' ? 0 : parseFloat(quantity);
   const addonsTotal = selectedAddons.reduce((sum, addon) => sum + addon.price, 0);
   const total = (basePrice + addonsTotal) * numericQuantity;
 
   const handleQuantityChange = (value: string) => {
-    // Allow empty string or numbers
+    // Only allow valid numbers and one decimal point
+    const isValid = /^\d*\.?\d*$/.test(value);
+    if (!isValid) return;
+
     if (value === '') {
       setQuantity('');
       return;
     }
 
-    const num = parseInt(value, 10);
-    if (!isNaN(num) && num >= 0 && num <= 99) {
-      setQuantity(num.toString());
-    }
+    setQuantity(value);
   };
 
   const handleIncrement = () => {
-    const currentNum = quantity === '' ? 0 : parseInt(quantity, 10);
+    const currentNum = quantity === '' ? 0 : parseFloat(quantity);
     if (currentNum < 99) {
-      setQuantity((currentNum + 1).toString());
+      setQuantity(Math.round((currentNum + 1) * 1000) / 1000 + '');
     }
   };
 
   const handleDecrement = () => {
-    const currentNum = quantity === '' ? 0 : parseInt(quantity, 10);
+    const currentNum = quantity === '' ? 0 : parseFloat(quantity);
     if (currentNum > 0) {
-      setQuantity((currentNum - 1).toString());
+      setQuantity(Math.round((currentNum - 1) * 1000) / 1000 + '');
     }
   };
 
   const handleAddToOrder = () => {
-    const numericQuantity = typeof quantity === 'string' ? parseInt(quantity, 10) : quantity;
-    if (isNaN(numericQuantity) || numericQuantity === 0) {
+    const numericQuantity = typeof quantity === 'string' ? parseFloat(quantity) : quantity;
+    if (isNaN(numericQuantity) || numericQuantity <= 0) {
       return; // Don't add to order if quantity is 0 or invalid
     }
 
@@ -248,10 +248,12 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
     }
 
     // Add main item as a cart line
+    const trimmedComment = comments.trim();
     const orderItem: OrderItem = {
       ...selectedItem,
       quantity: numericQuantity,
-      price: basePrice
+      price: basePrice,
+      comment: trimmedComment || undefined
     };
     addToOrder(orderItem);
 
@@ -310,7 +312,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
       <DialogContent 
         ref={dialogRef}
         variant="xlarge"
-        className="bg-white w-full max-w-[90rem] max-h-[90vh] overflow-y-auto flex flex-col md:flex-row p-0"
+        className="bg-white w-full max-w-[90rem] max-h-dialog-max-h overflow-y-auto flex flex-col md:flex-row p-0"
         showCloseButton={false}
       >
         {/* Left Column - Image  */}
@@ -352,13 +354,21 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
         <div className="md:w-1/3 p-6 overflow-y-auto">
           <div>
             <h2 className="text-2xl font-bold text-gray-900">{selectedItem?.item_name}</h2>
-            <p className="text-sm text-gray-500 mt-1">{selectedItem?.item}</p>
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-sm text-gray-500">{selectedItem?.item}</span>
+              {(selectedItem?.course_label || selectedItem?.course) && (
+                <>
+                  <span className="text-gray-300">•</span>
+                  <span className="text-sm font-medium text-blue-600">{selectedItem?.course_label || selectedItem?.course}</span>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="mt-6">
-            <h3 className="text-lg font-semibold mb-3">Special Instructions</h3>
+            <h3 className="text-lg font-semibold mb-3">{t('product_dialog.special_instructions')}</h3>
             <Input
-              placeholder="Add any special instructions or notes for this item..."
+              placeholder={t('product_dialog.special_instructions_placeholder')}
               value={comments}
               onChange={(e: ChangeEvent<HTMLInputElement>) => setComments(e.target.value)}
               className="resize-none"
@@ -366,7 +376,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
           </div>
 
           <div className="mt-6">
-            <h3 className="text-lg font-semibold mb-3">Quantity</h3>
+            <h3 className="text-lg font-semibold mb-3">{t('product_dialog.quantity')}</h3>
             <div className="flex items-center space-x-2">
               <Button
                 onClick={handleDecrement}
@@ -403,7 +413,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
           {/* Variants Section  */}
           {variantDetails.length > 0 && (
             <div className="mt-6">
-              <h3 className="text-lg font-semibold mb-3">Variants</h3>
+              <h3 className="text-lg font-semibold mb-3">{t('product_dialog.variants')}</h3>
               <div className="flex gap-2 flex-wrap">
                 {variantDetails.map((variant: any) => {
                   const menuVariant = menuItems.find((m: any) => m.item === variant.id);
@@ -433,12 +443,12 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
         <div className="h-auto md:w-1/3 p-6 border-t md:border-t-0 md:border-l border-gray-200 overflow-y-auto flex flex-col">
           <div className="overflow-y-auto mb-6">
             {isAddonLoading ? (
-              <div className="mb-6 flex items-center justify-center text-gray-500">Loading add-ons...</div>
+              <div className="mb-6 flex items-center justify-center text-gray-500">{t('product_dialog.loading_addons')}</div>
             ) : addonError ? (
               <div className="flex items-center justify-center text-red-500">{addonError}</div>
             ) : addonDetails.length > 0 ? (
               <div className="mb-6">
-                <h3 className="text-lg font-semibold mb-3">Add-ons</h3>
+                <h3 className="text-lg font-semibold mb-3">{t('product_dialog.addons')}</h3>
                 <div className="space-y-2">
                   {addonDetails.map((addon: any) => (
                     <button
@@ -460,13 +470,13 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
                 </div>
               </div>
             ) : (
-              <div className="flex items-center justify-center text-gray-400 text-sm">No add ons</div>
+              <div className="flex items-center justify-center text-gray-400 text-sm">{t('product_dialog.no_addons')}</div>
             )}
           </div>
           {/* Always show total section at the end */}
           <div className="mt-auto pt-2 border-t border-gray-200">
             <div className="flex justify-between items-center text-lg font-semibold">
-              <span>Total&nbsp;</span>
+              <span>{t('product_dialog.total')}&nbsp;</span>
               <span>{formatCurrency(total)}</span>
             </div>
             <Button
@@ -475,7 +485,7 @@ const ProductDialog: React.FC<ProductDialogProps> = ({
               size="lg"
               disabled={numericQuantity === 0}
             >
-              {editMode || existingCartItem ? 'Update Order' : 'Add to Order'}
+              {editMode || existingCartItem ? t('product_dialog.update_order') : t('product_dialog.add_to_order')}
             </Button>
           </div>
         </div>

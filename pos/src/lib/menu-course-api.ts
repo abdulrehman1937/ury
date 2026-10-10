@@ -1,20 +1,19 @@
-import { DOCTYPES } from '../data/doctypes';
-import { db } from './frappe-sdk';
+import { call } from '@ury/core';
 
 export interface MenuCourse {
   name: string;
+  label: string;
+  icon?: string;
 }
 
 export interface MenuCourseResponse {
-  data: MenuCourse[];
+  message: MenuCourse[];
 }
 
 
 export async function getMenuCourses(): Promise<MenuCourse[]> {
-  const courses = await db.getDocList(DOCTYPES.URY_MENU_COURSE, {
-    fields: ['name'],
-    limit: "*" as unknown as number,
-    asDict: true,
-  });
-  return courses as MenuCourse[];
-} 
+  const response = await call.get<MenuCourseResponse>(
+    'ury.ury_pos.api.getMenuCourses'
+  );
+  return response.message;
+}

@@ -1,19 +1,21 @@
 import { useState, useEffect, useRef } from 'react';
+import { t } from '../i18n';
 import { Link, useLocation } from 'react-router-dom';
-import { 
+import {
   Command,
   User,
   ChevronDown,
   Monitor,
   LogOut,
   RefreshCw,
+  Lock,
 } from 'lucide-react';
-import { Button, Input } from './ui';
+import { Button, Input } from '@ury/ui';
 import { useRootStore } from '../store/root-store';
 import { usePOSStore } from '../store/pos-store';
 import type { RootState } from '../store/root-store';
-import { logout } from '../lib/auth-api';
-import { showToast } from './ui/toast';
+import { logout } from '@ury/core';
+import { showToast } from '@ury/ui';
 
 const Header = () => {
   const [showUserMenu, setShowUserMenu] = useState(false);
@@ -21,20 +23,20 @@ const Header = () => {
   const user = useRootStore((state: RootState) => state.user);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const location = useLocation();
-  const { searchQuery, setSearchQuery } = usePOSStore();
+  const { searchQuery, setSearchQuery, setShowVoluntaryClosing } = usePOSStore();
   const { orderSearchQuery, setOrderSearchQuery } = useRootStore();
   const [orderSearchInput, setOrderSearchInput] = useState(orderSearchQuery);
 
   // Determine placeholder and handlers based on route
-  let searchPlaceholder = 'Search orders, menu items, or customers...';
+  let searchPlaceholder = t('header.search_placeholder_default');
   let searchValue: string | undefined = undefined;
   let searchOnChange: ((e: React.ChangeEvent<HTMLInputElement>) => void) | undefined = undefined;
   if (location.pathname === '/orders') {
-    searchPlaceholder = 'Search Orders';
+    searchPlaceholder = t('header.search_placeholder_orders');
     searchValue = orderSearchInput;
     searchOnChange = (e) => setOrderSearchInput(e.target.value);
-  } else if (location.pathname === '/') {
-    searchPlaceholder = 'Search Menu';
+  } else if (location.pathname === '/pos') {
+    searchPlaceholder = t('header.search_placeholder_menu');
     searchValue = searchQuery;
     searchOnChange = (e) => setSearchQuery(e.target.value);
   }
@@ -89,7 +91,7 @@ const Header = () => {
       await logout();
       window.location.href = '/login?redirect-to=%2Fpos';
     } catch (error) {
-      showToast.error('Failed to logout. Please try again.');
+      showToast.error(t('errors.failed_logout'));
     }
   };
 
@@ -102,14 +104,19 @@ const Header = () => {
     window.location.reload();
   };
 
+  const handleCloseShift = () => {
+    setShowUserMenu(false);
+    setShowVoluntaryClosing(true);
+  };
+
   return (
     <header className="bg-white border-b border-gray-200">
       <div className="flex items-center justify-between h-16 px-6">
         {/* Logo */}
         <div className="flex items-center">
-        <Link to="/" className="flex items-center space-x-3">
-            <img 
-              src="/assets/ury/pos/ury_pos.png" 
+        <Link to="/dashboard" className="flex items-center gap-3">
+            <img
+              src="/assets/ury/pos/ury_pos.png"
               alt="URY POS" 
               className="h-10 w-auto"
             />
@@ -117,7 +124,8 @@ const Header = () => {
         </div>
 
         {/* Search Bar */}
-        <div className="px-4 py-2 flex-1 flex items-center max-w-2xl mx-8  bg-gray-50 hover:bg-gray-100 border border-input rounded-md">
+        {location.pathname !== '/dashboard' ? (
+          <div className="px-4 py-2 flex-1 flex items-center max-w-2xl mx-8 bg-gray-50 hover:bg-gray-100 border border-input rounded-md">
             <Input
               ref={searchInputRef}
               placeholder={searchPlaceholder}
@@ -129,16 +137,19 @@ const Header = () => {
               <Command className="w-4 h-4" />
               <span>K</span>
             </div>
-        </div>
+          </div>
+        ) : (
+          <div className="flex-1" />
+        )}
 
         {/* Right side actions */}
-        <div className="flex items-center space-x-4">
+        <div className="flex items-center gap-4">
           {/* User menu */}
           <div className="relative" ref={userMenuRef}>
             <Button
               onClick={handleUserMenuToggle}
               variant="ghost"
-              className="flex items-center space-x-2 text-gray-600 hover:text-gray-900"
+              className="flex items-center gap-2 text-gray-600 hover:text-gray-900"
             >
               <div className="w-8 h-8 bg-primary-500 rounded-full flex items-center justify-center">
                 <User className="w-4 h-4 text-white" />
@@ -149,7 +160,7 @@ const Header = () => {
 
             {/* User dropdown */}
             {showUserMenu && (
-              <div className="absolute right-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
+              <div className="absolute end-0 mt-2 w-56 bg-white rounded-lg shadow-lg border border-gray-200 z-50">
                 <div className="p-4 border-b border-gray-200">
                   <p className="text-sm font-medium text-gray-900">{user?.full_name || 'User'}</p>
                   <p className="text-sm text-gray-500">{user?.name || ''}</p>
@@ -158,26 +169,42 @@ const Header = () => {
                   <Button
                     variant="ghost"
                     className="flex justify-start items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                    onClick={handleCloseShift}
+                  >
+                    <Lock className="w-4 h-4 me-3" />
+                    {t('header.close_shift')}
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="flex justify-start items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
+                    onClick={() => window.location.href = '/ury/dashboard'}
+                  >
+                    <Monitor className="w-4 h-4 me-3" />
+                    Switch to Dashboard
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    className="flex justify-start items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                     onClick={() => window.location.href = '/app'}
                   >
-                    <Monitor className="w-4 h-4 mr-3" />
-                    Switch To Desk
+                    <Monitor className="w-4 h-4 me-3" />
+                    {t('header.switch_to_desk')}
                   </Button>
                   <Button
                     variant="ghost"
                     className="flex justify-start items-center w-full px-4 py-2 text-sm text-gray-700 hover:bg-gray-100 transition-colors"
                     onClick={handleClearCache}
                   >
-                    <RefreshCw className="w-4 h-4 mr-3" />
-                    Clear Cache
+                    <RefreshCw className="w-4 h-4 me-3" />
+                    {t('header.clear_cache')}
                   </Button>
                   <Button
                     variant="ghost"
                     className="flex justify-start items-center w-full px-4 py-2 text-sm text-red-600 hover:bg-red-50 hover:text-red-700 transition-colors"
                     onClick={handleLogout}
                   >
-                    <LogOut className="w-4 h-4 mr-3" />
-                    Logout
+                    <LogOut className="w-4 h-4 me-3" />
+                    {t('header.logout')}
                   </Button>
                 </div>
               </div>

@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { X, Percent, Coins } from 'lucide-react';
 import { usePOSStore } from '../store/pos-store';
-import { cn, formatCurrency } from '../lib/utils';
-import { Button, Input, Dialog, DialogContent } from './ui';
-import { call } from '../lib/frappe-sdk';
+import { formatCurrency, call, parseFrappeError } from '@ury/core';
+import { Button, Input, Dialog, DialogContent, showToast } from '@ury/ui';
 import { DEFAULT_PAYMENT_MODE } from '../data/order-types';
+import { t } from '../i18n';
 
 
 interface PaymentDialogProps {
@@ -15,10 +15,13 @@ interface PaymentDialogProps {
   customer: string;
   posProfile: string;
   table: string | null;
+  tableLabel?: string | null;
   cashier: string;
   owner: string;
   fetchOrders: () => Promise<void>;
   clearSelectedOrder: () => void;
+  discountPercentage?: number;
+  discountAmount?: number;
 }
 
 const PaymentDialog: React.FC<PaymentDialogProps> = ({
@@ -29,22 +32,61 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
   customer,
   posProfile,
   table,
+  tableLabel,
   cashier,
   owner,
   fetchOrders,
-  clearSelectedOrder
+  clearSelectedOrder,
+  discountPercentage,
+  discountAmount
 }) => {
   const { paymentModes, fetchPaymentModes, posProfile: storePosProfile } = usePOSStore();
   const [isProcessing, setIsProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [discountType] = useState<'percentage'>('percentage'); // Only percentage now
-  const [discountValue, setDiscountValue] = useState<string>('');
-  const [appliedDiscount, setAppliedDiscount] = useState<number>(0);
+  
+  // Calculate effective percentage if only amount is provided (for invoice-level discounts)
+  const effectivePercentage = discountPercentage 
+    ? discountPercentage 
+    : (discountAmount && grandTotal + discountAmount > 0 
+        ? (discountAmount / (grandTotal + discountAmount)) * 100 
+        : 0);
+        
+  const [discountValue, setDiscountValue] = useState<string>(effectivePercentage > 0 ? String(effectivePercentage) : '');
+  const [appliedDiscount, setAppliedDiscount] = useState<number>(discountAmount || 0); // Only tracking transaction discount!
   const [paymentInputs, setPaymentInputs] = useState<{ [mode: string]: string }>({});
 
   useEffect(() => {
     fetchPaymentModes();
   }, [fetchPaymentModes]);
+
+  // baseTotal represents the amount before any invoice-level discount (like pricing rule or manual discount)
+  const baseTotal = grandTotal + (discountAmount || 0);
+
+  const handleApplyDiscount = () => {
+    const value = parseFloat(discountValue);
+    if (isNaN(value) || value <= 0) {
+      setError(t('errors.invalid_discount'));
+      return;
+    }
+    if (value > 100) {
+      setError(t('errors.discount_exceeds_max'));
+      return;
+    }
+    const calculatedDiscount = (baseTotal * value) / 100;
+    setAppliedDiscount(calculatedDiscount);
+    setError(null);
+  };
+
+  // Order summary logic
+  const subtotal = baseTotal;
+  const adjustment = roundedTotal - grandTotal;
+  const roundedAdjustment = Math.round(adjustment * 100) / 100;
+  const showAdjustment = Math.abs(roundedAdjustment) > 0.001;
+  const totalDiscount = appliedDiscount;
+  const discountedTotal = Math.max(0, subtotal - totalDiscount);
+  // If discount is applied, round up; else, round normally
+  const finalTotal = appliedDiscount > 0 ? Math.ceil(discountedTotal) : Math.round(discountedTotal);
 
   // Calculate split payment total
   const payments = paymentModes
@@ -55,31 +97,9 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     })
     .filter(Boolean);
   const paymentsTotal = payments.reduce((sum, p: any) => sum + p.amount, 0);
+  const shortfall = finalTotal - paymentsTotal;
+  const isShort = shortfall > 0.005;
 
-  const handleApplyDiscount = () => {
-    const value = parseFloat(discountValue);
-    if (isNaN(value) || value <= 0) {
-      setError('Please enter a valid discount value');
-      return;
-    }
-    if (value > 100) {
-      setError('Percentage discount cannot exceed 100%');
-      return;
-    }
-    const calculatedDiscount = (grandTotal * value) / 100;
-    setAppliedDiscount(calculatedDiscount);
-    setError(null);
-  };
-
-  // Order summary logic
-  const subtotal = grandTotal;
-  const adjustment = roundedTotal - grandTotal;
-  const roundedAdjustment = Math.round(adjustment * 100) / 100;
-  const showAdjustment = Math.abs(roundedAdjustment) > 0.001;
-  const totalDiscount = appliedDiscount;
-  const discountedTotal = Math.max(0, subtotal - totalDiscount);
-  // If discount is applied, round up; else, round normally
-  const finalTotal = appliedDiscount > 0 ? Math.ceil(discountedTotal) : Math.round(discountedTotal);
   const finalAdjustment = finalTotal - discountedTotal;
   const roundedFinalAdjustment = Math.round(finalAdjustment * 100) / 100;
   const showFinalAdjustment = Math.abs(roundedFinalAdjustment) > 0.001;
@@ -122,7 +142,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
     setError(null);
     try {
       await call.post('ury.ury.doctype.ury_order.ury_order.make_invoice', {
-        additionalDiscount: discountValue ? parseInt(discountValue) : null,
+        additionalDiscount: appliedDiscount > 0 ? appliedDiscount : null,
         cashier,
         customer,
         invoice,
@@ -131,15 +151,14 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
         pos_profile: posProfile,
         table,
       });
-      // Show toast and reload orders (assume showToast and reload available globally)
-      if (typeof window !== 'undefined' && (window as any).showToast) {
-        (window as any).showToast.success('Payment successful');
-      }
+      showToast.success(t('payment.success', { amount: formatCurrency(paymentsTotal) }));
       onClose();
       clearSelectedOrder();
       await fetchOrders();
     } catch (err) {
-      setError((err as Error).message);
+      console.error('Payment failed:', err);
+      // parseFrappeError extracts human-readable message from _server_messages (e.g. stock validation error)
+      setError(parseFrappeError(err, t('errors.payment_failed')));
     } finally {
       setIsProcessing(false);
     }
@@ -147,11 +166,11 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
 
   return (
     <Dialog open={true} onOpenChange={onClose}>
-      <DialogContent variant="xlarge" className="bg-white w-full max-w-4xl max-h-[90vh] flex flex-col md:flex-row p-0" showCloseButton={false}>
+      <DialogContent variant="xlarge" className="bg-white w-full max-w-4xl max-h-dialog-max-h flex flex-col md:flex-row p-0" showCloseButton={false}>
         {/* Left Column - Discount and Payment Mode */}
         <div className="md:w-1/2 p-6 border-b md:border-b-0 md:border-r border-gray-200 overflow-y-auto">
           <div className="flex justify-between items-center mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">Payment</h2>
+            <h2 className="text-2xl font-bold text-gray-900">{t('payment.title')}</h2>
             <Button
               onClick={onClose}
               variant="ghost"
@@ -167,14 +186,14 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
             <div className="space-y-4 mb-6">
               <h3 className="text-lg font-semibold flex items-center gap-2">
                 <Percent className="w-5 h-5" />
-                Apply Discount
+                {t('payment.apply_discount')}
               </h3>
               <div className="flex gap-2">
                 <Input
                   type="number"
                   value={discountValue}
                   onChange={(e) => setDiscountValue(e.target.value)}
-                  placeholder={'Enter %'}
+                  placeholder={t('payment.discount_placeholder')}
                   size="sm"
                   className="flex-1"
                 />
@@ -183,7 +202,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                   variant="default"
                   size="sm"
                 >
-                  Apply
+                  {t('common.apply')}
                 </Button>
               </div>
             </div>
@@ -191,7 +210,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
 
           {/* Payment Methods Section - Split Payment */}
           <div className="space-y-4 mb-6">
-            <h3 className="text-lg font-semibold">Payment Methods</h3>
+            <h3 className="text-lg font-semibold">{t('payment.payment_methods')}</h3>
             <div className="grid grid-cols-1 gap-3">
               {paymentModes.map((mode: any) => {
                 const id = typeof mode === 'string' ? mode : mode.id;
@@ -205,7 +224,7 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                       value={paymentInputs[id] || ''}
                       onChange={e => setPaymentInputs(inputs => ({ ...inputs, [id]: e.target.value }))}
                       onFocus={() => handlePaymentInputFocus(id)}
-                      placeholder="Amount"
+                      placeholder={t('payment.amount_placeholder')}
                       className="flex-1"
                       size="sm"
                       disabled={isProcessing}
@@ -215,8 +234,8 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
               })}
             </div>
             <div className="flex justify-between mt-2 text-sm">
-              <span className="font-medium">Total Entered</span>
-              <span className={'text-green-600 font-semibold flex items-center gap-1'}>
+              <span className="font-medium">{t('payment.total_entered')}</span>
+              <span className={`${isShort ? 'text-amber-700' : 'text-green-600'} font-semibold flex items-center gap-1`}>
                 {formatCurrency(paymentsTotal)} / {formatCurrency(finalTotal)}
                 {paymentsTotal > finalTotal && (
                   <span className="text-yellow-700 font-semibold">
@@ -226,6 +245,16 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
                 )}
               </span>
             </div>
+            {isShort && (
+              <p role="status" className="text-amber-700 text-sm font-medium">
+                {t('payment.short_by', { amount: formatCurrency(shortfall) })}
+              </p>
+            )}
+            {paymentsTotal > finalTotal && (
+              <p className="text-yellow-700 text-sm font-medium">
+                {t('payment.change_due', { amount: formatCurrency(paymentsTotal - finalTotal) })}
+              </p>
+            )}
           </div>
         </div>
 
@@ -240,31 +269,37 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
 
           {/* Order Summary */}
           <div className="space-y-3 mb-6">
-            <h3 className="text-lg font-semibold">Order Summary</h3>
+            <h3 className="text-lg font-semibold">{t('payment.order_summary')}</h3>
+            {tableLabel && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">{t('tables.table_name')}</span>
+                <span className="font-medium">{tableLabel}</span>
+              </div>
+            )}
             <div className="space-y-2 text-sm">
               {/* Subtotal (Grand Total) */}
               <div className="flex justify-between">
-                <span className="text-gray-600">Subtotal</span>
+                <span className="text-gray-600">{t('payment.subtotal')}</span>
                 <span>{formatCurrency(subtotal)}</span>
               </div>
               {/* Discount */}
               {appliedDiscount > 0 && (
                 <div className="flex justify-between text-green-600">
-                  <span>Discount</span>
+                  <span>{t('payment.discount')}</span>
                   <span>-{formatCurrency(appliedDiscount)}</span>
                 </div>
               )}
               {/* Adjustment (if any) */}
               {showFinalAdjustment && (
                 <div className="flex justify-between text-blue-600">
-                  <span>Adjustment</span>
+                  <span>{t('payment.adjustment')}</span>
                   <span>{roundedFinalAdjustment > 0 ? '+' : ''}{formatCurrency(roundedFinalAdjustment)}</span>
                 </div>
               )}
               {/* Final Total (Rounded) */}
               <div className="border-t pt-2">
                 <div className="flex justify-between font-semibold text-lg">
-                  <span>Total</span>
+                  <span>{t('payment.total')}</span>
                   <span>{formatCurrency(finalTotal)}</span>
                 </div>
               </div>
@@ -274,11 +309,11 @@ const PaymentDialog: React.FC<PaymentDialogProps> = ({
           {/* Payment Button */}
           <Button
             onClick={handlePayment}
-            disabled={isProcessing || payments.length === 0}
-            variant={isProcessing || payments.length === 0 ? "secondary" : "default"}
+            disabled={isProcessing || payments.length === 0 || isShort}
+            variant={isProcessing || payments.length === 0 || isShort ? "secondary" : "default"}
             className="w-full"
           >
-            {isProcessing ? 'Processing...' : `Pay ${formatCurrency(paymentsTotal>0?paymentsTotal:finalTotal)}`}
+            {isProcessing ? t('payment.processing') : t('payment.pay_button', { amount: formatCurrency(paymentsTotal > 0 ? paymentsTotal : finalTotal) })}
           </Button>
         </div>
       </DialogContent>

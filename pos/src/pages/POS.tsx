@@ -1,19 +1,17 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
+import { t } from '../i18n';
 import { Star, TrendingUp } from 'lucide-react';
 import Sidebar from '../components/Sidebar';
 import OrderPanel from '../components/OrderPanel';
 import ProductDialog from '../components/ProductDialog';
 import MenuList from '../components/MenuList';
-import SearchBar from '../components/SearchBar';
 import { usePOSStore } from '../store/pos-store';
-import { cn } from '../lib/utils';
-import { Spinner } from '../components/ui/spinner';
+import { cn } from '@ury/ui';
+import { Spinner } from '@ury/ui';
 import InitialLoader from '../components/InitialLoader';
 
 export default function POS() {
   const {
-    searchQuery,
-    setSearchQuery,
     quickFilter,
     setQuickFilter,
     setSelectedItem,
@@ -25,16 +23,16 @@ export default function POS() {
   } = usePOSStore();
   
   const [isDialogOpen, setIsDialogOpen] = useState(false);
-  const [showSearch, setShowSearch] = useState(false);
   const clickTimerRef = useRef<NodeJS.Timeout | null>(null);
   const clickCountRef = useRef(0);
 
   useEffect(() => {
-    if (showSearch) {
-      // The searchInputRef.current.focus() line was removed as per the new_code,
-      // as the SearchBar component now handles its own focus.
-    }
-  }, [showSearch]);
+    return () => {
+      if (clickTimerRef.current) {
+        clearTimeout(clickTimerRef.current);
+      }
+    };
+  }, []);
 
   const handleItemClick = (item: any) => {
     if (isMenuInteractionDisabled()) return;
@@ -49,7 +47,7 @@ export default function POS() {
       if (clickCountRef.current === 1) {
         // Single click - add to cart
         addToOrder({ ...item, quantity: 1 });
-      } else if (clickCountRef.current === 2) {
+      } else if (clickCountRef.current >= 2) {
         // Double click - open dialog
         setSelectedItem(item);
         setIsDialogOpen(true);
@@ -103,7 +101,7 @@ export default function POS() {
   if (loading) {
     return (
       <div className="flex-1 flex items-center justify-center">
-        <Spinner message="Loading menu items..." />
+        <Spinner message={t('common.loading_menu_items')} />
       </div>
     );
   }
@@ -112,7 +110,7 @@ export default function POS() {
     return (
       <div className="flex-1 flex items-center justify-center">
         <div className="text-center">
-          <p className="text-lg font-medium text-red-600">Error loading menu</p>
+          <p className="text-lg font-medium text-red-600">{t('common.error_loading_menu_items')}</p>
           <p className="text-sm text-gray-500 mt-2">{error}</p>
         </div>
       </div>
@@ -122,7 +120,7 @@ export default function POS() {
   return (
     <div className="flex flex-1 overflow-hidden">
       <Sidebar disabled={isMenuInteractionDisabled()} />
-      <div className="flex-1 flex flex-col h-screen overflow-hidden pr-96">
+      <div className="flex-1 flex flex-col h-screen overflow-hidden pe-96">
         <div className="p-4 bg-white border-b border-gray-200">
           <div className="max-w-screen-xl mx-auto space-y-3">
             <div className="flex items-center gap-2 overflow-x-auto overflow-y-hidden">
@@ -134,8 +132,8 @@ export default function POS() {
                 disabled={isMenuInteractionDisabled()}
               /> */}
               
-              <QuickFilterButton filter="all" icon={Star} label="All" />
-              <QuickFilterButton filter="special" icon={TrendingUp} label="Special Items" />
+              <QuickFilterButton filter="all" icon={Star} label={t('common.all')} />
+              <QuickFilterButton filter="special" icon={TrendingUp} label={t('menu.special_items')} />
             </div>
           </div>
         </div>
