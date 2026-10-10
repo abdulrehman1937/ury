@@ -923,8 +923,38 @@ def getAggregatorMOP(aggregator):
             {"mode_of_payment": modeOfPayment, "opening_amount": float(0)}
     )
     return modeOfPaymentsList
+def _customer_territory(territory=None):
+    """Pick a Territory that exists on this site.
+
+    The POS omits territory when the cashier does not choose one. The old
+    default was India, which is absent on sites set up for another country.
+    """
+    if territory and frappe.db.exists("Territory", territory):
+        return territory
+    if territory:
+        frappe.throw(f"Could not find Territory: {territory}")
+
+    country = frappe.db.get_single_value("System Settings", "country")
+    if country and frappe.db.exists("Territory", {"name": country, "is_group": 0}):
+        return country
+
+    company = frappe.db.get_single_value("Global Defaults", "default_company")
+    if company:
+        company_country = frappe.db.get_value("Company", company, "country")
+        if company_country and frappe.db.exists("Territory", {"name": company_country, "is_group": 0}):
+            return company_country
+
+    fallback = frappe.db.get_value(
+        "Territory", {"is_group": 0, "name": ["!=", "Rest Of The World"]}, "name"
+    ) or frappe.db.get_value("Territory", {"is_group": 0}, "name")
+    if not fallback:
+        frappe.throw("No Territory found. Create a Territory before adding customers.")
+    return fallback
+
+
 @frappe.whitelist()
-def create_customer(customer_name, mobile_number=None, customer_group="Individual", territory="India"):
+def create_customer(customer_name, mobile_number=None, customer_group="Individual", territory=None):
+    territory = _customer_territory(territory)
     if not frappe.has_permission("Customer", "create"):
         frappe.throw("Not permitted to create customers", frappe.PermissionError)
         

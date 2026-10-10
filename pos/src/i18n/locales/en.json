@@ -205,6 +205,7 @@
     "select_territory": "Select territory",
     "adding": "Adding Customer...",
     "add_button": "Add Customer",
+    "added": "{{name}} added",
     "failed_create": "Failed to create customer. Please try again."
   },
   "comment": {

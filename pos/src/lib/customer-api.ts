@@ -92,23 +92,24 @@ export async function addCustomer(
   }
 }
 
-function getscramblePattern(text: string) {
-  return `%${text.split("").join("%")}%`;
-}
-
-export async function searchCustomers(search: string, limit = 5) {
-  if (!search.trim()) return [];
-
-  const pattern = getscramblePattern(search);
+export async function searchCustomers(search: string, limit = 50) {
+  const term = search.trim();
 
   try {
     const res = await db.getDocList(DOCTYPES.CUSTOMER, {
       fields: ["name", "customer_name", "mobile_number"],
-      orFilters: [
-        ["customer_name", "like", pattern],
-        ["mobile_number", "like", pattern],
-        ["name", "like", pattern],
-      ],
+      filters: [["disabled", "=", 0]],
+      orFilters: term
+        ? [
+            ["customer_name", "like", `%${term}%`],
+            ["mobile_number", "like", `%${term}%`],
+            ["name", "like", `%${term}%`],
+          ]
+        : undefined,
+      orderBy: {
+        field: "customer_name",
+        order: "asc",
+      },
       limit,
       limit_start: 0,
     });

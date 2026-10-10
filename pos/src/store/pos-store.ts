@@ -354,7 +354,7 @@ export const usePOSStore = create<POSStore>((set, get) => ({
       }
 
       const defaultCustomer = getDefaultCustomer(get().posProfile);
-      if (defaultCustomer) {
+      if (defaultCustomer && !get().selectedCustomer) {
         set({ selectedCustomer: defaultCustomer });
       }
 
